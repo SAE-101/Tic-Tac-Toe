@@ -1,0 +1,247 @@
+@page "/"
+@implements IDisposable
+
+<PageTitle>Tic Tac Toe</PageTitle>
+
+@if (Winner is not null)
+{
+    <div class="celebration-layer" aria-hidden="true">
+        @for (var index = 0; index < CelebrationParticleCount; index++)
+        {
+            var particleIndex = index;
+            <span class="celebration-particle @(IsWinnerSide(particleIndex) ? "winner-particle" : "loser-particle")"
+                  style="@GetCelebrationStyle(particleIndex)">@GetCelebrationEmoji(particleIndex)</span>
+        }
+    </div>
+}
+
+<main class="game-page">
+    <header class="game-header">
+        <div class="brand-mark" aria-hidden="true">T<span>&amp;</span>T</div>
+        <p class="eyebrow">A little friendly rivalry</p>
+        <h1>Tic Tac Toe</h1>
+        <p class="game-intro">Three in a row takes the round. Best of luck!</p>
+    </header>
+
+    <section class="game-card" aria-label="Tic Tac Toe game">
+        <div class="scoreboard" aria-label="Score">
+            <div class="score-player score-x @(CurrentPlayer == "X" && !GameOver ? "is-active" : string.Empty)">
+                <img class="score-symbol" src="images/crossbones.svg" alt="" />
+                <span class="score-name">Player X</span>
+                <span class="score-value">@XWins</span>
+            </div>
+            <div class="score-draws">
+                <span class="score-name">Draws</span>
+                <span class="score-value">@Draws</span>
+            </div>
+            <div class="score-player score-o @(CurrentPlayer == "O" && !GameOver ? "is-active" : string.Empty)">
+                <img class="score-symbol" src="images/skull.svg" alt="" />
+                <span class="score-name">Player O</span>
+                <span class="score-value">@OWins</span>
+            </div>
+        </div>
+
+        <p class="game-status @(GameOver ? "is-finished" : string.Empty)" aria-live="polite" aria-atomic="true">
+            @StatusMessage
+        </p>
+
+        <div class="game-board" role="group" aria-label="Game board">
+            @for (var index = 0; index < Board.Length; index++)
+            {
+                var cellIndex = index;
+                <button class="game-cell @GetCellClass(cellIndex)"
+                        type="button"
+                        aria-label="@GetCellLabel(cellIndex)"
+                        disabled="@(Board[cellIndex] is not null || GameOver)"
+                        @onclick="() => PlayMove(cellIndex)">
+                    @if (Board[cellIndex] is not null)
+                    {
+                        <img class="cell-mark" src="@GetPlayerIcon(Board[cellIndex])" alt="" />
+                    }
+                </button>
+            }
+        </div>
+
+        <div class="game-actions">
+            <button class="new-game-button" type="button" @onclick="StartNewRound">
+                <span aria-hidden="true">↻</span>
+                New round
+            </button>
+            <button class="reset-button" type="button" @onclick="ResetScores">
+                Reset scores
+            </button>
+        </div>
+    </section>
+
+    <footer class="game-footer">
+        <span class="footer-dot" aria-hidden="true"></span>
+        <span>Pass the screen and play together</span>
+        <span class="footer-dot" aria-hidden="true"></span>
+    </footer>
+</main>
+
+@code {
+    private const int CelebrationParticleCount = 20;
+    private readonly string?[] Board = new string?[9];
+    private readonly int[][] WinningLines =
+    [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],
+        [0, 4, 8], [2, 4, 6]
+    ];
+
+    private HashSet<int> WinningCells = [];
+    private string CurrentPlayer = "X";
+    private string? Winner;
+    private bool IsDraw;
+    private int XWins;
+    private int OWins;
+    private int Draws;
+    private bool IsShowingNewRound;
+    private CancellationTokenSource? celebrationCancellation;
+
+    private bool GameOver => Winner is not null || IsDraw;
+
+    private string StatusMessage => Winner is not null
+        ? $"Player {Winner} wins! Player {OtherPlayer}, better luck next round."
+        : IsDraw
+            ? "It's a draw! The next round starts soon."
+            : IsShowingNewRound
+                ? "New round — Player X starts!"
+            : $"Player {CurrentPlayer}'s turn";
+
+    private string OtherPlayer => Winner == "X" ? "O" : "X";
+
+    private async Task PlayMove(int index)
+    {
+        if (GameOver || Board[index] is not null)
+        {
+            return;
+        }
+
+        IsShowingNewRound = false;
+        Board[index] = CurrentPlayer;
+
+        foreach (var line in WinningLines)
+        {
+            if (line.All(cell => Board[cell] == CurrentPlayer))
+            {
+                Winner = CurrentPlayer;
+                WinningCells = line.ToHashSet();
+
+                if (Winner == "X")
+                {
+                    XWins++;
+                }
+                else
+                {
+                    OWins++;
+                }
+
+                await ShowRoundResultAsync();
+                return;
+            }
+        }
+
+        if (Board.All(cell => cell is not null))
+        {
+            IsDraw = true;
+            Draws++;
+            await ShowRoundResultAsync();
+            return;
+        }
+
+        CurrentPlayer = CurrentPlayer == "X" ? "O" : "X";
+    }
+
+    private void StartNewRound()
+    {
+        CancelCelebration();
+        Array.Clear(Board);
+        CurrentPlayer = "X";
+        Winner = null;
+        IsDraw = false;
+        IsShowingNewRound = true;
+        WinningCells.Clear();
+    }
+
+    private void ResetScores()
+    {
+        StartNewRound();
+        XWins = 0;
+        OWins = 0;
+        Draws = 0;
+    }
+
+    private string GetCellClass(int index)
+    {
+        var markClass = Board[index] == "X" ? "cell-x" : Board[index] == "O" ? "cell-o" : string.Empty;
+        return WinningCells.Contains(index) ? $"{markClass} is-winning" : markClass;
+    }
+
+    private static string GetPlayerIcon(string? player) =>
+        player == "X" ? "images/crossbones.svg" : "images/skull.svg";
+
+    private string GetCellLabel(int index) => Board[index] switch
+    {
+        "X" => $"Cell {index + 1}, Player X, crossed bones",
+        "O" => $"Cell {index + 1}, Player O, skull",
+        _ => $"Cell {index + 1}, empty"
+    };
+
+    private async Task ShowRoundResultAsync()
+    {
+        var cancellation = new CancellationTokenSource();
+        celebrationCancellation = cancellation;
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4), cancellation.Token);
+            if (celebrationCancellation == cancellation)
+            {
+                celebrationCancellation = null;
+                StartNewRound();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelCelebration()
+    {
+        var cancellation = celebrationCancellation;
+        celebrationCancellation = null;
+        cancellation?.Cancel();
+    }
+
+    private bool IsWinnerSide(int index) => (index < CelebrationParticleCount / 2) == (Winner == "X");
+
+    private string GetCelebrationEmoji(int index)
+    {
+        var emojis = IsWinnerSide(index)
+            ? new[] { "🎆", "🎇", "✨", "🎉", "🎆" }
+            : new[] { "😭", "😢", "🥺", "😿", "😭" };
+
+        return emojis[index % (CelebrationParticleCount / 2) % emojis.Length];
+    }
+
+    private string GetCelebrationStyle(int index)
+    {
+        var positionInSide = index % (CelebrationParticleCount / 2);
+        var left = index < CelebrationParticleCount / 2
+            ? 2 + positionInSide % 4 * 6
+            : 76 + positionInSide % 4 * 6;
+        var top = 7 + (positionInSide * 19 + (index / (CelebrationParticleCount / 2)) * 23) % 84;
+        var delay = positionInSide % 5 * 0.16;
+        var drift = positionInSide % 2 == 0 ? -16 : 16;
+
+        return $"left: {left}%; top: {top}%; --particle-delay: {delay:0.00}s; --particle-drift: {drift}px;";
+    }
+
+    public void Dispose() => CancelCelebration();
+}
